@@ -9,14 +9,19 @@ function ensureDb() {
     fs.mkdirSync(dir, { recursive: true });
   }
   if (!fs.existsSync(DB_PATH)) {
-    fs.writeFileSync(DB_PATH, JSON.stringify({ orders: [], downloads: [] }, null, 2));
+    fs.writeFileSync(DB_PATH, JSON.stringify({ orders: [], downloads: [], events: [] }, null, 2));
   }
 }
 
 function readDb() {
   ensureDb();
   const raw = fs.readFileSync(DB_PATH, 'utf8');
-  return JSON.parse(raw);
+  const data = JSON.parse(raw);
+  if (!Array.isArray(data.events)) {
+    data.events = [];
+    writeDb(data);
+  }
+  return data;
 }
 
 function writeDb(data) {
@@ -43,6 +48,15 @@ export function saveDownload(_, download) {
   writeDb(db);
 }
 
+export function addEvent(_, event) {
+  const db = readDb();
+  db.events.push(event);
+  if (db.events.length > 500) {
+    db.events = db.events.slice(-500);
+  }
+  writeDb(db);
+}
+
 export function markDownloadUsed(_, token, usedAt) {
   const db = readDb();
   const record = db.downloads.find((item) => item.token === token);
@@ -65,4 +79,9 @@ export function findOrder(_, orderId) {
 export function listDownloadsForOrder(_, orderId) {
   const db = readDb();
   return db.downloads.filter((item) => Number(item.order_id) === Number(orderId));
+}
+
+export function listEvents(_) {
+  const db = readDb();
+  return db.events || [];
 }
