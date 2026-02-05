@@ -10,7 +10,7 @@ This app provides secure, expiring download links for ebook products and lets cu
 
 ## Project Structure
 - `src/server.js` - webhook handler, download endpoint, app proxy endpoint
-- `src/db.js` - SQLite storage for orders + download tokens
+- `src/db.js` - JSON file storage for orders + download tokens
 - `config/ebooks.json` - product ID -> file mapping
 - `storage/ebooks/` - place your ebook files here
 - `scripts/get-access-token.js` - get a short-lived Admin API token
@@ -50,3 +50,4 @@ Shopify app proxy signs the request so the app can verify the customer and order
 ## Notes
 - Webhook HMAC verification is required for security.
 - Tokens expire after `EBOOK_EXPIRY_MINUTES` and can be single-use.
+- This version avoids native SQLite dependencies so it runs on hosts without Python/build tools.

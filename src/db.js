@@ -1,83 +1,68 @@
-import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const DB_PATH = path.resolve('ebook-delivery-app', 'storage', 'ebook-delivery.sqlite');
+const DB_PATH = path.resolve('ebook-delivery-app', 'storage', 'db.json');
 
-export function initDb() {
+function ensureDb() {
   const dir = path.dirname(DB_PATH);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
-
-  const db = new Database(DB_PATH);
-  db.pragma('journal_mode = WAL');
-
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS orders (
-      id INTEGER PRIMARY KEY,
-      customer_id INTEGER,
-      email TEXT NOT NULL,
-      created_at TEXT NOT NULL
-    );
-  `);
-
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS downloads (
-      token TEXT PRIMARY KEY,
-      order_id INTEGER NOT NULL,
-      product_id INTEGER NOT NULL,
-      file_name TEXT NOT NULL,
-      expires_at TEXT NOT NULL,
-      used_at TEXT,
-      created_at TEXT NOT NULL,
-      FOREIGN KEY(order_id) REFERENCES orders(id)
-    );
-  `);
-
-  return db;
+  if (!fs.existsSync(DB_PATH)) {
+    fs.writeFileSync(DB_PATH, JSON.stringify({ orders: [], downloads: [] }, null, 2));
+  }
 }
 
-export function saveOrder(db, order) {
-  const stmt = db.prepare(`
-    INSERT OR IGNORE INTO orders (id, customer_id, email, created_at)
-    VALUES (@id, @customer_id, @email, @created_at)
-  `);
-  stmt.run(order);
+function readDb() {
+  ensureDb();
+  const raw = fs.readFileSync(DB_PATH, 'utf8');
+  return JSON.parse(raw);
 }
 
-export function saveDownload(db, download) {
-  const stmt = db.prepare(`
-    INSERT INTO downloads (token, order_id, product_id, file_name, expires_at, used_at, created_at)
-    VALUES (@token, @order_id, @product_id, @file_name, @expires_at, @used_at, @created_at)
-  `);
-  stmt.run(download);
+function writeDb(data) {
+  fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
 }
 
-export function markDownloadUsed(db, token, usedAt) {
-  const stmt = db.prepare(`
-    UPDATE downloads SET used_at = @used_at WHERE token = @token
-  `);
-  stmt.run({ token, used_at: usedAt });
+export function initDb() {
+  ensureDb();
+  return true;
 }
 
-export function findDownload(db, token) {
-  const stmt = db.prepare(`
-    SELECT * FROM downloads WHERE token = @token
-  `);
-  return stmt.get({ token });
+export function saveOrder(_, order) {
+  const db = readDb();
+  const exists = db.orders.find((item) => Number(item.id) === Number(order.id));
+  if (!exists) {
+    db.orders.push(order);
+    writeDb(db);
+  }
 }
 
-export function findOrder(db, orderId) {
-  const stmt = db.prepare(`
-    SELECT * FROM orders WHERE id = @id
-  `);
-  return stmt.get({ id: orderId });
+export function saveDownload(_, download) {
+  const db = readDb();
+  db.downloads.push(download);
+  writeDb(db);
 }
 
-export function listDownloadsForOrder(db, orderId) {
-  const stmt = db.prepare(`
-    SELECT * FROM downloads WHERE order_id = @order_id
-  `);
-  return stmt.all({ order_id: orderId });
+export function markDownloadUsed(_, token, usedAt) {
+  const db = readDb();
+  const record = db.downloads.find((item) => item.token === token);
+  if (record) {
+    record.used_at = usedAt;
+    writeDb(db);
+  }
+}
+
+export function findDownload(_, token) {
+  const db = readDb();
+  return db.downloads.find((item) => item.token === token);
+}
+
+export function findOrder(_, orderId) {
+  const db = readDb();
+  return db.orders.find((item) => Number(item.id) === Number(orderId));
+}
+
+export function listDownloadsForOrder(_, orderId) {
+  const db = readDb();
+  return db.downloads.filter((item) => Number(item.order_id) === Number(orderId));
 }
