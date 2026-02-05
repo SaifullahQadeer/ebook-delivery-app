@@ -1,0 +1,9 @@
+{
+  "products": [
+    {
+      "product_id": 1234567890,
+      "title": "E-Book 1",
+      "file_name": "ebook-1.pdf"
+    }
+  ]
+}
