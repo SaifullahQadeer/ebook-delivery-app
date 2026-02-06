@@ -2,6 +2,7 @@ import 'dotenv/config';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import express from 'express';
 import morgan from 'morgan';
 
@@ -21,6 +22,10 @@ import { sendDownloadEmail } from './email.js';
 
 const app = express();
 const db = initDb();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const APP_ROOT = path.resolve(__dirname, '..');
 
 const PORT = Number(process.env.PORT || 3007);
 const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
@@ -42,17 +47,34 @@ app.get('/', (req, res) => {
 });
 
 app.post('/webhooks/orders_paid', express.raw({ type: 'application/json' }), async (req, res) => {
-  const hmac = req.get('X-Shopify-Hmac-Sha256');
-  const digest = crypto
-    .createHmac('sha256', process.env.WEBHOOK_SHARED_SECRET || '')
-    .update(req.body)
-    .digest('base64');
+  const hmacHeader = (req.get('X-Shopify-Hmac-Sha256') || '').trim();
+  const candidateSecrets = Array.from(
+    new Set([process.env.WEBHOOK_SHARED_SECRET, process.env.SHOPIFY_API_SECRET].filter(Boolean).map(String))
+  );
 
-  if (!hmac || hmac !== digest) {
+  const isValidWebhook = (() => {
+    if (!hmacHeader) return false;
+    let received;
+    try {
+      received = Buffer.from(hmacHeader, 'base64');
+    } catch {
+      return false;
+    }
+    if (received.length === 0) return false;
+
+    for (const secret of candidateSecrets) {
+      const expected = crypto.createHmac('sha256', secret).update(req.body).digest(); // Buffer
+      if (received.length !== expected.length) continue;
+      if (crypto.timingSafeEqual(received, expected)) return true;
+    }
+    return false;
+  })();
+
+  if (!isValidWebhook) {
     addEvent(db, {
       type: 'webhook_invalid',
       order_id: null,
-      message: 'Invalid webhook signature',
+      message: hmacHeader ? 'Invalid webhook signature' : 'Missing X-Shopify-Hmac-Sha256 header',
       created_at: new Date().toISOString()
     });
     return res.status(401).send('Invalid webhook signature');
@@ -86,10 +108,15 @@ app.post('/webhooks/orders_paid', express.raw({ type: 'application/json' }), asy
   }
 
   if (ebooks.length === 0) {
+    const rawProductIds = (payload.line_items || [])
+      .map((li) => li && li.product_id)
+      .filter((v) => v !== null && v !== undefined);
+    const uniqueProductIds = Array.from(new Set(rawProductIds.map((v) => String(v)))).slice(0, 25);
+
     addEvent(db, {
       type: 'webhook_skipped',
       order_id: orderId,
-      message: 'No ebook items',
+      message: `No ebook items. line_item product_id(s): ${uniqueProductIds.length ? uniqueProductIds.join(', ') : '(none)'}`,
       created_at: new Date().toISOString()
     });
     return res.status(200).send('No ebook items');
@@ -190,7 +217,7 @@ app.get('/download/:token', async (req, res) => {
     return res.status(410).send('Link already used.');
   }
 
-  const filePath = path.resolve('ebook-delivery-app', 'storage', 'ebooks', record.file_name);
+  const filePath = path.join(APP_ROOT, 'storage', 'ebooks', record.file_name);
   if (!fs.existsSync(filePath)) {
     addEvent(db, {
       type: 'download_failed',
@@ -322,10 +349,11 @@ function verifyProxySignature(query, secret) {
   const message = Object.keys(rest)
     .sort()
     .map((key) => `${key}=${Array.isArray(rest[key]) ? rest[key].join(',') : rest[key]}`)
-    .join('');
+    .join('&');
 
   const digest = crypto.createHmac('sha256', secret).update(message).digest('hex');
-  return digest === signatureValue;
+  if (digest.length !== String(signatureValue).length) return false;
+  return crypto.timingSafeEqual(Buffer.from(digest, 'utf8'), Buffer.from(String(signatureValue), 'utf8'));
 }
 
 app.listen(PORT, () => {

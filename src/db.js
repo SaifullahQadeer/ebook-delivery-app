@@ -1,7 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const DB_PATH = path.resolve('ebook-delivery-app', 'storage', 'db.json');
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const APP_ROOT = path.resolve(__dirname, '..');
+
+// Resolve relative to the app folder, not the current working directory.
+const DB_PATH = path.join(APP_ROOT, 'storage', 'db.json');
 
 function ensureDb() {
   const dir = path.dirname(DB_PATH);

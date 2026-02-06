@@ -1,7 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const CONFIG_PATH = path.resolve('ebook-delivery-app', 'config', 'ebooks.json');
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const APP_ROOT = path.resolve(__dirname, '..');
+
+// Resolve relative to the app folder, not the current working directory.
+const CONFIG_PATH = path.join(APP_ROOT, 'config', 'ebooks.json');
 
 export function loadEbookConfig() {
   if (!fs.existsSync(CONFIG_PATH)) {
