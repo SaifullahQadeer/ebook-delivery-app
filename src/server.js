@@ -54,6 +54,7 @@ app.post('/webhooks/orders_paid', express.raw({ type: 'application/json' }), asy
 
   const isValidWebhook = (() => {
     if (!hmacHeader) return false;
+    if (candidateSecrets.length === 0) return false;
     let received;
     try {
       received = Buffer.from(hmacHeader, 'base64');
@@ -63,9 +64,23 @@ app.post('/webhooks/orders_paid', express.raw({ type: 'application/json' }), asy
     if (received.length === 0) return false;
 
     for (const secret of candidateSecrets) {
-      const expected = crypto.createHmac('sha256', secret).update(req.body).digest(); // Buffer
-      if (received.length !== expected.length) continue;
-      if (crypto.timingSafeEqual(received, expected)) return true;
+      // Some Shopify UIs present the signing secret as hex. Try both:
+      // - using it as a normal string key
+      // - interpreting it as hex bytes (if it looks like hex)
+      const keysToTry = [secret];
+      if (/^[0-9a-f]+$/i.test(secret) && secret.length % 2 === 0) {
+        try {
+          keysToTry.push(Buffer.from(secret, 'hex'));
+        } catch {
+          // ignore
+        }
+      }
+
+      for (const key of keysToTry) {
+        const expected = crypto.createHmac('sha256', key).update(req.body).digest(); // Buffer
+        if (received.length !== expected.length) continue;
+        if (crypto.timingSafeEqual(received, expected)) return true;
+      }
     }
     return false;
   })();
